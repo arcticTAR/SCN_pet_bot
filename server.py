@@ -1,22 +1,59 @@
 from flask import Flask, request, jsonify
+from db import init_db, get_connection
 
 app = Flask(__name__)
 
-# Тестовый маршрут — чтобы проверить, что backend работает
+# ИНИЦИАЛИЗАЦИЯ БД при запуске приложения
+init_db()
+
+
 @app.route("/", methods=["GET"])
 def home():
-    return "Backend is alive!", 200
+    return "Backend with DB is alive!", 200
 
 
-# Маршрут под webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
 
-    print("Получены данные:", data)  # лог в Render → Logs
+    # Обязательно проверим вход
+    required = ["date", "time", "master", "client", "service"]
+    if not all(k in data and data[k] for k in required):
+        return jsonify({"error": "Missing required fields"}), 400
 
-    # Просто возвращаем OK чтобы бот видел, что всё дошло
-    return jsonify({"status": "ok"}), 200
+    # Запись в БД
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO schedule (date, time, master, client, service, phone)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        data["date"],
+        data["time"],
+        data["master"],
+        data["client"],
+        data["service"],
+        data.get("phone")
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "saved"}), 200
+
+
+@app.route("/get_schedule", methods=["GET"])
+def get_schedule():
+    """Пример: получить все записи расписания"""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM schedule ORDER BY date, time")
+    rows = [dict(row) for row in cur.fetchall()]
+
+    conn.close()
+    return jsonify(rows), 200
 
 
 if __name__ == "__main__":
